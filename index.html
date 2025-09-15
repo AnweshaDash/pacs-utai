@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PACS Utai – Snapshot + Themed Drill-downs</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<style>
+  :root{
+    --brand:#2e7d32; --brand-200:#c8e6c9; --brand-100:#e8f5e9; --bg:#f6fbf7; --stroke:#e5e7eb;
+    --text:#111827; --muted:#6b7280; --danger:#c62828; --warn:#ef6c00; --card:#ffffff; --blue:#1976d2; --violet:#6a4bc3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; font-family:Inter, Segoe UI, Arial, sans-serif; background:var(--bg); color:var(--text)}
+
+  /* Top app bar */
+  .appbar{position:sticky; top:0; z-index:20; background:linear-gradient(100deg,#1b5e20 0%, #2e7d32 60%, #43a047 100%); color:#fff;}
+  .appbar .row{display:flex; align-items:center; gap:12px; padding:14px 18px; flex-wrap:wrap}
+  .logo{height:40px; width:40px; border-radius:10px; background:#fff; display:flex; align-items:center; justify-content:center; overflow:hidden; padding:4px}
+  .logo img{width:100%; height:100%; object-fit:contain; display:block}
+  .ttl{font-weight:800}
+  .meta{font-size:12px; opacity:.9}
+  .welcome{margin-left:auto; background:#ffffff22; padding:6px 10px; border-radius:999px; font-weight:700}
+
+  /* Secondary nav */
+  .tabs{display:flex; gap:6px; padding:8px 12px; background:#f1faf3; border-top:1px solid #ffffff33; border-bottom:1px solid var(--stroke); flex-wrap:wrap}
+  .tab{padding:8px 12px; border:1px solid var(--stroke); border-radius:999px; background:#fff; cursor:pointer; font-size:13px}
+  .tab.active{background:var(--brand-100); color:#145a2a; border-color:#bcdac0}
+
+  /* Layout helpers */
+  .wrap{padding:18px}
+  .grid{display:grid; grid-template-columns:repeat(12,1fr); gap:14px}
+  @media (max-width:1200px){ .grid{grid-template-columns:repeat(8,1fr)} }
+  @media (max-width:900px){ .grid{grid-template-columns:repeat(6,1fr)} }
+  @media (max-width:768px){ .grid{grid-template-columns:1fr} }
+  .span-12{grid-column:span 12} .span-10{grid-column:span 10} .span-8{grid-column:span 8} .span-6{grid-column:span 6}
+  .span-5{grid-column:span 5} .span-4{grid-column:span 4} .span-3{grid-column:span 3} .span-2{grid-column:span 2}
+
+  /* Cards */
+  .card{background:var(--card); border:1px solid var(--stroke); border-radius:14px; box-shadow:0 1px 2px rgba(0,0,0,.05); overflow:hidden; display:flex; flex-direction:column}
+  .hd{padding:12px 14px; border-bottom:1px solid var(--stroke); color:var(--brand); font-weight:700; display:flex; align-items:center; justify-content:space-between; gap:10px}
+  .hd .sub{color:#374151; font-weight:600; font-size:12px}
+  .bd{padding:14px}
+  .chart-wrap{width:100%; height:260px}
+  canvas{max-width:100% !important; max-height:100% !important}
+  .badge{font-size:12px; padding:2px 8px; border:1px solid var(--stroke); border-radius:999px; color:var(--muted); background:var(--brand-100)}
+  .pill{font-size:12px; padding:2px 8px; border:1px solid var(--stroke); border-radius:999px; color:#145a2a; background:#fff}
+
+  /* Snapshot (rows as groups) */
+  .rowhead{font-weight:800; color:var(--brand); margin:8px 2px 10px; display:flex; align-items:center; gap:10px}
+  .chip{font-weight:700; font-size:12px; color:var(--brand); background:var(--brand-100); border:1px solid var(--stroke); padding:2px 8px; border-radius:999px}
+  .cards{display:grid; grid-template-columns:repeat(12,1fr); gap:12px}
+  @media (max-width:1100px){ .span-6{grid-column:span 6} .span-3{grid-column:span 6} }
+  @media (max-width:680px){ .cards{grid-template-columns:repeat(1,1fr)} .span-6,.span-3{grid-column:span 1} }
+  .kcard{background:#fff; border:1px solid var(--stroke); border-radius:12px; padding:12px; min-height:90px; box-shadow:0 1px 2px rgba(0,0,0,.05); display:flex; gap:10px; align-items:center}
+  .ic{min-width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800}
+  .ic.g{background:#2e7d32} .ic.b{background:#1976d2} .ic.a{background:#ffb300}
+  .ic.r{background:#c62828} .ic.t{background:#009688} .ic.p{background:#6a4bc3} .ic.y{background:#d81b60}
+  .kv{display:flex; flex-direction:column; gap:2px}
+  .label{font-size:12px; color:var(--muted)}
+  .value{font-size:20px; font-weight:800; color:var(--brand)}
+  .mini{font-size:12px; color:var(--muted)}
+  .hint{font-size:12px; color:#374151}
+  .insights{font-size:13px; color:#374151; margin-top:10px; line-height:1.5}
+  .insights b{color:#145a2a}
+
+  /* Tables */
+  table{width:100%; border-collapse:collapse; font-size:14px}
+  th,td{border:1px solid #e5e7eb; padding:8px 10px; text-align:center}
+  th{background:var(--brand-100); color:var(--brand)}
+  .toplist td:first-child{font-weight:700; text-align:left}
+
+  /* Section visibility & effects */
+  section{display:none}
+  section.active{display:block}
+  .dbl{cursor:zoom-in}
+  .flash{box-shadow:0 0 0 3px #c8e6c9 inset; border-radius:8px}
+  .tiny{margin:8px 2px 0; font-size:12px; color:var(--muted)}
+
+  /* Simple modal for reporting status tracking */
+  .modal{position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; padding:20px}
+  .modal .panel{background:#fff; border-radius:12px; width:min(720px,96vw); border:1px solid var(--stroke)}
+  .modal .hd{border-bottom:1px solid var(--stroke)}
+  .timeline{padding:14px; font-size:14px}
+  .tl-item{display:flex; align-items:flex-start; gap:10px; margin:10px 0}
+  .tl-dot{width:10px;height:10px;border-radius:50%;background:#2e7d32;margin-top:6px}
+  .tl-dot.pending{background:#bdbdbd}
+/* ---------- LOGIN PATCH ---------- */
+.login-overlay{
+  position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center;
+  background:linear-gradient(120deg,#1b5e20 0%, #2e7d32 60%, #43a047 100%);
+}
+.login-card{
+  width:min(420px,94vw); background:var(--card); border:1px solid var(--stroke); border-radius:16px;
+  box-shadow:0 10px 30px rgba(0,0,0,.15); overflow:hidden;
+}
+.login-card .hd{ background:var(--brand-100); border-bottom:1px solid var(--stroke); color:#145a2a; }
+.login-body{ padding:18px; display:flex; flex-direction:column; gap:12px }
+.login-row{ display:flex; flex-direction:column; gap:6px }
+.login-row label{ font-size:12px; color:var(--muted); font-weight:600 }
+.login-input{
+  width:100%; padding:10px 12px; border:1px solid var(--stroke); border-radius:10px; font-size:14px; outline:none;
+}
+.login-actions{ display:flex; gap:8px; align-items:center; justify-content:space-between; margin-top:4px }
+.btn-solid{
+  background:var(--brand); color:#fff; border:none; padding:10px 14px; border-radius:10px;
+  font-weight:700; cursor:pointer;
+}
+.btn-ghost{
+  background:#ffffff; color:#145a2a; border:1px solid var(--stroke); padding:10px 14px; border-radius:10px;
+  font-weight:700; cursor:pointer;
+}
+.login-note{ font-size:12px; color:var(--muted) }
+.login-error{ font-size:12px; color:#fff; background:#c62828; border-radius:999px; padding:6px 10px; display:none }
+
+/* Lock the app until login */
+.app-locked .appbar,
+.app-locked section,
+.app-locked .modal { display:none !important; }
+
+
+</style>
+</head>
+<body class="app-locked">
+
+<!-- LOGIN OVERLAY -->
+<div id="loginOverlay" class="login-overlay" aria-modal="true" role="dialog">
+  <div class="login-card">
+    <div class="hd">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="logo" aria-hidden="true" style="background:#fff">
+          <img src="https://www.nabard.org/auth/writereaddata/ContentImgs/1303194734NABARD-ENG-logo-big.png" alt="" loading="lazy" width="40" height="40" referrerpolicy="no-referrer"/>
+        </div>
+        <div>
+          <div class="ttl" style="color:#145a2a">PACS Utai — Sign in</div>
+          <div class="meta" style="color:#374151">Durg, Chhattisgarh • Established 1982</div>
+        </div>
+      </div>
+   
+    <form class="login-body" onsubmit="return handleLogin(event)">
+      <div class="login-row">
+        <label for="loginId">Login ID</label>
+        <input id="loginId" class="login-input" type="text" placeholder="Enter Login ID" autocomplete="username" required/>
+      </div>
+      <div class="login-row">
+        <label for="loginPw">Password</label>
+        <input id="loginPw" class="login-input" type="password" placeholder="Enter Password" autocomplete="current-password" required/>
+      </div>
+      <div class="login-actions">
+        <div style="display:flex;align-items:center;gap:8px">
+          <button type="submit" class="btn-solid">Sign in</button>
+          <button type="button" class="btn-ghost" onclick="document.getElementById('loginPw').type = document.getElementById('loginPw').type==='password'?'text':'password'">Show/Hide</button>
+        </div>
+        <div id="loginErr" class="login-error">Invalid credentials</div>
+      </div>
+          </form>
+  </div>
+</div>
+
+</div>
+
+  <div class="appbar">
+    <div class="row">
+      <a class="logo" href="#snapshot" aria-label="NABARD">
+        <img src="https://www.nabard.org/auth/writereaddata/ContentImgs/1303194734NABARD-ENG-logo-big.png" alt="NABARD logo" loading="lazy" width="40" height="40" referrerpolicy="no-referrer"/>
+      </a>
+      <div>
+        <div class="ttl">PACS Utai – Executive Snapshot & Drill-downs</div>
+        <div class="meta">Durg, Chhattisgarh • Established 1982</div>
+      </div>
+      <div class="welcome">Welcome, <b>Mr. Girdhar Soni, Sachiv ji</b> 🙏</div>
+    </div>
+    <div class="tabs">
+  <button type="button" class="tab active" data-route="#snapshot">Snapshot</button>
+  <button type="button" class="tab" data-route="#pacs">PACS profile</button>
+  <button type="button" class="tab" data-route="#membership">Membership</button>
+  <button type="button" class="tab" data-route="#loan">Loan profile</button>
+  <button type="button" class="tab" data-route="#noncredit">Non-credit</button>
+  <button type="button" class="tab" data-route="#reporting">Reporting</button>
+</div>
+
+  </div>
+<div style="padding:8px 12px">
+  <button class="tab" onclick="logout()">Logout</button>
+</div>
+
+  <!-- SNAPSHOT -->
+  <section id="snapshot" class="active">
+    <div class="wrap">
+
+      <!-- Row 1: PACS profile (requested first) -->
+      <div class="rowhead dbl" data-target="#pacs">① PACS profile <span class="chip">Double-click for charts / details</span></div>
+      <div class="cards">
+        <div class="kcard span-3"><div class="ic t">🗺️</div><div class="kv"><div class="label">Villages covered</div><div class="value">5</div></div></div>
+        <div class="kcard span-3"><div class="ic b">🌍</div><div class="kv"><div class="label">Total land holding</div><div class="value">7,150 acres</div></div></div>
+        <div class="kcard span-3"><div class="ic a">🏛️</div><div class="kv"><div class="label">Fixed assets (NBV)</div><div class="value">₹0.72 Cr</div></div></div>
+        <div class="kcard span-3"><div class="ic y">👩</div><div class="kv"><div class="label">Women</div><div class="value" id="ss_women">—</div><div class="mini">~35% of population</div></div></div>
+        <div class="kcard span-3"><div class="ic p">🧑‍🎓</div><div class="kv"><div class="label">Youth (15–35)</div><div class="value" id="ss_youth">—</div><div class="mini">~45% of population</div></div></div>
+        <div class="kcard span-3"><div class="ic g">🌾</div><div class="kv"><div class="label">Avg land / member</div><div class="value">3.2 acres</div><div class="mini">Across members</div></div></div>
+        <div class="kcard span-3"><div class="ic g">🥔</div><div class="kv"><div class="label">Crop focus</div><div class="value">Paddy</div><div class="mini">Area-wise leader</div></div></div>
+        <div class="kcard span-3"><div class="ic b">🌾</div><div class="kv"><div class="label">Crop focus</div><div class="value">Wheat</div><div class="mini">Second priority</div></div></div>
+      </div>
+
+      <!-- Row 2: Membership -->
+      <div class="rowhead dbl" data-target="#membership">② Members profile <span class="chip">Double-click for charts</span></div>
+      <div class="cards">
+        <div class="kcard span-3"><div class="ic g">👥</div><div class="kv"><div class="label">Total members</div><div class="value" id="ss_total">2,316</div></div></div>
+        <div class="kcard span-3"><div class="ic b">💳</div><div class="kv"><div class="label">Borrowing</div><div class="value" id="ss_bor">2,050</div><div class="mini">Taking loans</div></div></div>
+        <div class="kcard span-3"><div class="ic a">🚫</div><div class="kv"><div class="label">Non-borrowing</div><div class="value" id="ss_nbor">266</div><div class="mini">Not taking loans</div></div></div>
+        <div class="kcard span-3"><div class="ic t">🏦</div><div class="kv"><div class="label">Active term depositors</div><div class="value" id="ss_td">1,000</div></div></div>
+        <div class="kcard span-3"><div class="ic p">💤</div><div class="kv"><div class="label">Non depositors</div><div class="value" id="ss_ntd">1,316</div></div></div>
+        <div class="kcard span-12">
+          <div class="ic b">📋</div>
+          <div class="kv">
+            <div class="label">Quick actions</div>
+            <div class="toolbar" style="margin-top:2px">
+              <button class="btn btn-outline" onclick="openList('borrowers')">Borrowers vs Non-borrowers – View list</button>
+              <button class="btn btn-outline" onclick="openList('td')">Term-deposit givers vs Non-TD – View list</button>
+              <button class="btn btn-outline" onclick="downloadMembersCSV(true)">Download members CSV</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 3: Loan profile -->
+      <div class="rowhead dbl" data-target="#loan">③ Loan profile <span class="chip">Double-click for charts</span></div>
+      <div class="cards">
+        <div class="kcard span-3"><div class="ic g">💰</div><div class="kv"><div class="label">Total outstanding</div><div class="value">₹1.2 Cr</div><div class="mini">FY 2024–25</div></div></div>
+        <div class="kcard span-3"><div class="ic b">🧾</div><div class="kv"><div class="label">Avg KCC</div><div class="value">96%</div><div class="mini">Coverage across members</div></div></div>
+        <div class="kcard span-3"><div class="ic t">📉</div><div class="kv"><div class="label">Avg NPA</div><div class="value">4.2%</div></div></div>
+        <div class="kcard span-3"><div class="ic a">⛔</div><div class="kv"><div class="label">Members in DPD</div><div class="value">&gt;30: 84 | &gt;60: 42 | &gt;90: 18</div><div class="mini" style="color:var(--danger)">Focus on &gt;90</div></div></div>
+      </div>
+
+      <!-- Row 4: Non-credit -->
+      <div class="rowhead dbl" data-target="#noncredit">④ Non-credit activities <span class="chip">Double-click for details</span></div>
+      <div class="cards">
+        <div class="kcard span-3"><div class="ic g">🧪</div><div class="kv"><div class="label">Fertilisers – sales</div><div class="value">₹1.05 Cr</div></div></div>
+        <div class="kcard span-3"><div class="ic b">🧴</div><div class="kv"><div class="label">Pesticides – sales</div><div class="value">₹0.18 Cr</div></div></div>
+        <div class="kcard span-3"><div class="ic a">🌱</div><div class="kv"><div class="label">Seeds – sales</div><div class="value">₹0.42 Cr</div></div></div>
+        <div class="kcard span-3"><div class="ic t">🌾</div><div class="kv"><div class="label">Paddy procurement – sales</div><div class="value">₹21.26 L</div></div></div>
+        <div class="kcard span-3"><div class="ic p">🏦</div><div class="kv"><div class="label">Deposits & CSC</div><div class="value">₹1.39 Cr</div><div class="mini">Commissions + dividends</div></div></div>
+        <div class="kcard span-3"><div class="ic b">⭐</div><div class="kv"><div class="label">Diversification score</div><div class="value">72 / 100</div><div class="mini">Higher is better</div></div></div>
+      </div>
+
+      <!-- Row 5: Reporting -->
+      <div class="rowhead dbl" data-target="#reporting">⑤ Reporting status <span class="chip">Double-click for workflows</span></div>
+      <div class="cards">
+        <div class="kcard span-6"><div class="ic g">✅</div><div class="kv"><div class="label">Balance Sheet (FY 2024-25)</div><div class="value" style="color:#22a06b">Ready</div></div></div>
+        <div class="kcard span-6"><div class="ic a">📤</div><div class="kv"><div class="label">Reports pending to send</div><div class="value" style="color:var(--warn)">5</div></div></div>
+      </div>
+
+      <div class="tiny">Tip: double-click a row title to jump to its detailed charts.</div>
+    </div>
+  </section>
+
+  <!-- MEMBERSHIP -->
+  <section id="membership">
+    <div class="wrap">
+      <div class="grid">
+        <!-- Card 1: DPD bucket -->
+        <div class="card span-6">
+          <div class="hd">Member Profiling (Behaviour) <span class="badge">DPD buckets</span> <span class="pill">DPD = Days Past Due</span></div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="profilingChart"></canvas></div>
+            <div class="hint" style="margin-top:6px">Share of members in each DPD bucket per village (values show %).</div>
+            <div class="insights" id="profilingInsights"></div>
+            <div class="toolbar">
+              <button class="btn" onclick="autoClassify()">Auto-classify</button>
+              <button class="btn btn-outline" onclick="downloadProfilingCSV()">Export profiling</button>
+              <button class="btn btn-blue" onclick="openBehaviourPlaybook()">Open playbook</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Borrowing vs Non-borrowing -->
+        <div class="card span-6">
+          <div class="hd">Member Insights (Borrowing v/s Non Borrowing) <span class="pill">Totals & focus order</span></div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="membersChart"></canvas></div>
+            <div class="insights" id="membersInsights"></div>
+            <div class="toolbar">
+              <button class="btn btn-warn" onclick="messageDormant()">Message non-borrowers first</button>
+              <button class="btn btn-outline" onclick="downloadMembersCSV(true)">Download CSV (member wise)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Creditworthiness -->
+        <div class="card span-6">
+          <div class="hd">Creditworthiness Score – Distribution <span class="pill">“Higher is safer”</span></div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="scoreDist"></canvas></div>
+            <div class="insights" id="scoreInsights">
+              <b>How to read:</b> Bars show number of members in each score band (&lt;60, 60–69, 70–79, 80–89, 90–100). More members in higher bands implies a healthier portfolio.
+            </div>
+            <div class="toolbar">
+              <button class="btn" onclick="createOffers()">Generate top-up offers (updates Top Members)</button>
+              <button class="btn btn-outline" onclick="exportScores()">Export scores (member wise)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 4: Top members by score (DPD column removed per feedback) -->
+        <div class="card span-6">
+          <div class="hd">Top Members by Score <span class="pill">Auto-updates from “Generate top-up offers”</span></div>
+          <div class="bd">
+            <table class="toplist" id="topMembersTbl">
+              <tr><th>Member</th><th>Village</th><th>Score</th><th>Eligible (₹)</th><th>Actions</th></tr>
+            </table>
+            <div class="insights" id="topMemberInsights">
+              Top-ups can be targeted for farm mechanization (e.g., tractor/implement loans) among members with scores ≥85.
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 5: Peer benchmarking -->
+        <div class="card span-12">
+          <div class="hd">Peer Benchmark – Membership <span class="sub">Borrowing vs Non-borrowing split across nearby PACS</span></div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="peerMemberChart"></canvas></div>
+            <div class="insights" id="peerMemberInsights"></div>
+            <div class="toolbar">
+              <button class="btn btn-blue" onclick="contactPACS()">Call / WhatsApp / Email PACS</button>
+              <button class="btn btn-outline" onclick="exportPeerMembership()">Download benchmarking report</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- PACS PROFILE -->
+  <section id="pacs">
+    <div class="wrap">
+      <!-- Section 1: quick facts + export -->
+      <div class="card span-12">
+        <div class="hd">PACS Overview <span class="sub">Village population • Farmer households • Members • Coverage</span></div>
+        <div class="bd">
+          <div class="grid">
+            <div class="kcard span-3"><div class="ic b">🏘️</div><div class="kv"><div class="label">Village population</div><div class="value" id="popVal">24,500</div></div></div>
+            <div class="kcard span-3"><div class="ic g">👨‍🌾</div><div class="kv"><div class="label">Farmer households</div><div class="value">5,600</div></div></div>
+            <div class="kcard span-3"><div class="ic p">🧑‍🤝‍🧑</div><div class="kv"><div class="label">PACS members</div><div class="value">2,316</div></div></div>
+            <div class="kcard span-3"><div class="ic a">✅</div><div class="kv"><div class="label">Eligible for loans</div><div class="value">1,980</div></div></div>
+          </div>
+          <div class="toolbar">
+            <button class="btn" onclick="window.print()">Export Summary PDF (print)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2 -->
+      <div class="grid">
+        <div class="card span-6">
+          <div class="hd">Cashflow Monitoring (Trend) <span class="pill">Simple view</span></div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="cashflowChart"></canvas></div>
+            <div class="insights" id="cashflowInsights">
+              Shows money in (repayments, deposits) vs money out (new loans, withdrawals). If net goes negative for multiple months, consider delaying disbursements or nudging repayments.
+            </div>
+            <div class="toolbar">
+              <button class="btn" onclick="scheduleFundRelease()">Schedule fund release</button>
+              <button class="btn btn-outline" onclick="openLiquidity()">Liquidity report</button>
+              <button class="btn btn-warn" onclick="setCashAlerts()">Set cash buffer alerts</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- (Peer utilization moved to Loan page per feedback) -->
+
+        <div class="card span-6">
+          <div class="hd">Crop Calendar & Harvest-Linked Repayments</div>
+          <div class="bd">
+            <div style="display:flex; gap:12px; align-items:center; font-size:12px; color:#374151; margin-bottom:8px">
+              <div><span style="display:inline-block;width:12px;height:12px;background:#9ccc65;border-radius:999px;margin-right:4px"></span>Sowing</div>
+              <div><span style="display:inline-block;width:12px;height:12px;background:#1976d2;border-radius:999px;margin-right:4px"></span>Growing</div>
+              <div><span style="display:inline-block;width:12px;height:12px;background:#ffb300;border-radius:999px;margin-right:4px"></span>Harvest</div>
+            </div>
+            <!-- Months header -->
+            <div class="grid" style="grid-template-columns:150px repeat(12,1fr); gap:6px; font-size:13px; align-items:center">
+              <div></div>
+              <div class="m">Jan</div><div class="m">Feb</div><div class="m">Mar</div><div class="m">Apr</div><div class="m">May</div><div class="m">Jun</div>
+              <div class="m">Jul</div><div class="m">Aug</div><div class="m">Sep</div><div class="m">Oct</div><div class="m">Nov</div><div class="m">Dec</div>
+
+              <!-- Paddy (Kharif): Sowing Jun–Jul, Growing Aug–Oct, Harvest Nov–Dec -->
+              <div style="font-weight:600">Paddy (Kharif)</div>
+              <div></div><div></div><div></div><div></div><div><div style="height:18px;border-radius:999px;background:#9ccc65"></div></div>
+              <div><div style="height:18px;border-radius:999px;background:#9ccc65"></div></div>
+              <div><div style="height:18px;border-radius:999px;background:#1976d2"></div></div>
+              <div><div style="height:18px;border-radius:999px;background:#1976d2"></div></div>
+              <div><div style="height:18px;border-radius:999px;background:#1976d2"></div></div>
+              <div><div style="height:18px;border-radius:999px;background:#ffb300"></div></div>
+              <div><div style="height:18px;border-radius:999px;background:#ffb300"></div></div>
+
+              <!-- Wheat (Rabi): Sowing Nov–Dec, Growing Dec–Feb, Harvest Mar -->
+              <div style="font-weight:600">Wheat (Rabi)</div>
+              <div></div><div></div><div><div style="height:18px;border-radius:999px;background:#ffb300"></div></div>
+              <div></div><div></div>
+              <div></div><div></div><div></div><div></div>
+              <div><div style="height:18px;border-radius:999px;background:#9ccc65"></div></div>
+              <div><div style="height:18px;border-radius:999px;background:#9ccc65"></div></div>
+              <div><div style="height:18px;border-radius:999px;background:#1976d2"></div></div>
+            </div>
+
+            <div class="insights">
+              Use this calendar to: <b>plan disbursements</b> near sowing/growing, <b>align repayments</b> near harvest inflows, and <b>schedule reminders</b> 15 days pre-harvest.
+            </div>
+            <div class="toolbar">
+              <button class="btn" onclick="scheduleHarvestReminders()">Schedule harvest reminders</button>
+              <button class="btn btn-outline" onclick="exportCalendar()">Download crop calendar CSV</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- LOAN PROFILE -->
+  <section id="loan">
+    <div class="wrap">
+      <div class="grid">
+        <!-- Card 1 -->
+        <div class="card span-6">
+          <div class="hd">Loan Utilization (Land vs KCC Covered) <span class="pill">Target ≥70%</span></div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="utilChart"></canvas></div>
+            <div class="hint" style="margin-top:6px">Utilization (%) = (KCC-covered cultivable acres ÷ Total cultivable acres) × 100. Low utilization ⇒ under-financed.</div>
+            <div class="insights" id="utilInsights"></div>
+            <div class="toolbar">
+              <button class="btn" onclick="findTopup()">Find top-up candidates</button>
+              <button class="btn btn-outline" onclick="exportUtilization()">Download utilization CSV</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2 -->
+        <div class="card span-6">
+          <div class="hd">Repayment Monitoring (Upcoming vs Overdue)</div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="repayChart"></canvas></div>
+            <div class="insights" id="repayInsights"></div>
+            <div class="toolbar">
+              <button class="btn" onclick="sendReminders()">Send reminders</button>
+              <button class="btn btn-outline" onclick="downloadDueList()">Download due list</button>
+              <button class="btn btn-warn" onclick="escalate90()">Escalate &gt;90 DPD</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Overdue/DPD Monitoring -->
+        <div class="card span-6">
+          <div class="hd">Overdue & DPD Monitoring <span class="pill">DPD = Days Past Due</span></div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="dpdVillageChart"></canvas></div>
+            <div class="insights" id="dpdInsights"></div>
+            <div class="toolbar">
+              <button class="btn" onclick="sendRepaymentNudges()">Send repayment nudges</button>
+              <button class="btn btn-outline" onclick="exportOverdue()">Export overdue CSV</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 4: Peer benchmarking (simplified) -->
+        <div class="card span-6">
+          <div class="hd">Peer Benchmarking (Branches / Villages)</div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="peerLoanChart"></canvas></div>
+            <div class="insights" id="peerLoanInsights"></div>
+            <div class="toolbar">
+              <button class="btn btn-outline" onclick="downloadPeerLoan()">Download benchmarking report</button>
+              <button class="btn" onclick="setTargets()">Set improvement targets</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- NON-CREDIT -->
+  <section id="noncredit">
+    <div class="wrap">
+      <!-- Aggregate header -->
+      <div class="card span-12">
+        <div class="hd">Non-credit Overview <span class="sub">Aggregate revenue & profit across Fertiliser • Pesticide • Seeds • CSC</span></div>
+        <div class="bd">
+          <div class="grid">
+            <div class="kcard span-3"><div class="ic g">💹</div><div class="kv"><div class="label">YTD Revenue</div><div class="value" id="nc_rev">₹—</div></div></div>
+            <div class="kcard span-3"><div class="ic b">💰</div><div class="kv"><div class="label">YTD Profit</div><div class="value" id="nc_profit">₹—</div></div></div>
+            <div class="kcard span-3"><div class="ic a">🧮</div><div class="kv"><div class="label">Gross Margin %</div><div class="value" id="nc_gm">—%</div></div></div>
+            <div class="kcard span-3"><div class="ic t">🏁</div><div class="kv"><div class="label">Under-performing stream</div><div class="value" id="nc_lag">—</div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fertiliser -->
+      <div class="grid">
+        <div class="card span-6">
+          <div class="hd">Fertiliser Sales – Monthly by SKU</div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="inputsSeasonality"></canvas></div>
+            <div class="hint" style="margin-top:6px">Track seasonal demand for Urea, DAP, MOP, NPK across the year.</div>
+            <div class="insights" id="fertSalesInsights"></div>
+            <div class="toolbar">
+              <button class="btn" onclick="raisePOSelected()">Raise purchase order</button>
+              <button class="btn btn-outline" onclick="downloadSalesCSV()">Export sales CSV</button>
+            </div>
+          </div>
+        </div>
+        <div class="card span-6">
+          <div class="hd">Fertiliser Stock Status – On hand vs Reorder level</div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="inputsForecast"></canvas></div>
+            <div class="hint" style="margin:10px 0 6px">Reorder when stock falls below threshold or days-of-cover &lt; 30.</div>
+            <table id="reorderTbl">
+              <tr>
+                <th style="width:90px">SKU</th>
+                <th>Stock (bags)</th>
+                <th>Reorder level</th>
+                <th>Days of cover</th>
+                <th>Suggested PO</th>
+                <th>Select</th>
+              </tr>
+            </table>
+            <div class="toolbar">
+              <button class="btn" onclick="raisePOSelected()">Create PO for selected</button>
+              <button class="btn btn-outline" onclick="exportStockCSV()">Export stock CSV</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pesticide -->
+      <div class="grid">
+        <div class="card span-6">
+          <div class="hd">Pesticide Sales – Monthly by SKU</div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="pestSalesChart"></canvas></div>
+            <div class="insights" id="pestSalesInsights"></div>
+            <div class="toolbar">
+              <button class="btn" onclick="raisePOSelected()">Raise purchase order</button>
+            </div>
+          </div>
+        </div>
+        <div class="card span-6">
+          <div class="hd">Pesticide Stock Status – On hand vs Reorder level</div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="pestStockChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Seeds -->
+      <div class="grid">
+        <div class="card span-6">
+          <div class="hd">Seeds Sales – Monthly by SKU</div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="seedSalesChart"></canvas></div>
+            <div class="insights" id="seedSalesInsights"></div>
+            <div class="toolbar">
+              <button class="btn" onclick="raisePOSelected()">Raise purchase order</button>
+            </div>
+          </div>
+        </div>
+        <div class="card span-6">
+          <div class="hd">Seeds Stock Status – On hand vs Reorder level</div>
+          <div class="bd">
+            <div class="chart-wrap"><canvas id="seedStockChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CSC activities (tiles instead of chart) -->
+      <div class="card span-12">
+        <div class="hd">CSC Activities – Commissions</div>
+        <div class="bd">
+          <div class="cards">
+            <div class="kcard span-3"><div class="ic b">⚡</div><div class="kv"><div class="label">Electricity bill</div><div class="value">₹1.45 L</div><div class="mini">This month</div></div></div>
+            <div class="kcard span-3"><div class="ic g">🛡️</div><div class="kv"><div class="label">Insurance</div><div class="value">₹0.72 L</div><div class="mini">This month</div></div></div>
+            <div class="kcard span-3"><div class="ic a">🪪</div><div class="kv"><div class="label">Aadhaar update</div><div class="value">₹0.28 L</div><div class="mini">This month</div></div></div>
+            <div class="kcard span-3"><div class="ic p">🧾</div><div class="kv"><div class="label">PAN services</div><div class="value">₹0.34 L</div><div class="mini">This month</div></div></div>
+          </div>
+          <div class="insights">Show simple action-oriented notes for the operator. E.g., “Push insurance upsell in Jul–Aug; Aadhaar camps on 15th.”</div>
+        </div>
+      </div>
+
+      <!-- Non-credit Peer benchmarking -->
+      <div class="card span-12">
+        <div class="hd">Peer Benchmark – Non-credit Diversification</div>
+        <div class="bd">
+          <div class="chart-wrap"><canvas id="peerNCChart"></canvas></div>
+          <div class="insights" id="peerNCInsights"></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- REPORTING -->
+  <section id="reporting">
+    <div class="wrap">
+      <div class="grid">
+        <div class="card span-12">
+          <div class="hd">Reports & Workflows <span class="badge">Compliance + MIS</span></div>
+          <div class="bd">
+            <div class="grid" style="grid-template-columns:1fr auto; align-items:center; gap:8px">
+              <div class="mini"><b>Last MIS pack:</b> <span id="lastMis">Not generated</span> • <b>Pending to send:</b> <span id="pendingCount">5</span></div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap">
+                <button class="tab" onclick="generateMISPack()">Generate</button>
+                <button class="tab" onclick="viewMIS()">View</button>
+                <button class="tab" onclick="sendToDCCB()">Send to DCCB</button>
+                <button class="tab" onclick="openTrack()">Track Review</button>
+                <button class="tab" onclick="downloadZip()">Download ZIP</button>
+              </div>
+            </div>
+            <div style="height:1px;background:var(--stroke);margin:10px 0"></div>
+            <div class="grid" style="grid-template-columns:1.6fr .9fr .8fr 1.2fr; gap:8px; align-items:center">
+              <div class="mini" style="font-weight:700; color:#374151">Report</div>
+              <div class="mini" style="font-weight:700; color:#374151">Period</div>
+              <div class="mini" style="font-weight:700; color:#374151">Status</div>
+              <div class="mini" style="font-weight:700; color:#374151">Actions</div>
+
+              <div>Interest Subvention Statement</div>
+              <div><input class="tab" type="month" id="r_int_month" value="2025-05"/></div>
+              <div><span class="badge" id="st_int">Not generated</span></div>
+              <div style="display:flex; gap:6px"><button class="tab" onclick="generateReport('INT')">Generate</button><button class="tab" onclick="viewReport('INT')">View</button></div>
+
+              <div>Overdue Report</div>
+              <div><input class="tab" type="month" id="r_od_month" value="2025-05"/></div>
+              <div><span class="badge" id="st_od">Pending review</span></div>
+              <div style="display:flex; gap:6px"><button class="tab" onclick="generateReport('OD')">Generate</button><button class="tab" onclick="viewReport('OD')">View</button></div>
+
+              <div>Balance Sheet</div>
+              <div><select class="tab" id="r_bs_year"><option>FY 2023-24</option><option selected>FY 2024-25</option></select></div>
+              <div><span class="badge" id="st_bs">Ready</span></div>
+              <div style="display:flex; gap:6px"><button class="tab" onclick="generateReport('BS')">Rebuild</button><button class="tab" onclick="viewReport('BS')">View</button></div>
+
+              <div>Trial Balance</div>
+              <div><select class="tab" id="r_tb_month"><option>Apr 2025</option><option selected>May 2025</option></select></div>
+              <div><span class="badge" id="st_tb">Ready</span></div>
+              <div style="display:flex; gap:6px"><button class="tab" onclick="generateReport('TB')">Rebuild</button><button class="tab" onclick="viewReport('TB')">View</button></div>
+
+              <div>P&L Statement</div>
+              <div><select class="tab" id="r_pnl_period"><option>Apr–Jun 2025</option><option selected>YTD 2025-26</option></select></div>
+              <div><span class="badge" id="st_pnl">Ready</span></div>
+              <div style="display:flex; gap:6px"><button class="tab" onclick="generateReport('PNL')">Rebuild</button><button class="tab" onclick="viewReport('PNL')">View</button></div>
+            </div>
+            <div style="height:1px;background:var(--stroke);margin:10px 0"></div>
+            <div class="mini" style="font-weight:700; margin-bottom:6px">History</div>
+            <table id="historyTable">
+              <tr><th>Date/Time</th><th>Item</th><th>Sent to</th><th>Status</th></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Modal for tracking -->
+  <div class="modal" id="trackModal" onclick="if(event.target===this) this.style.display='none'">
+    <div class="panel">
+      <div class="hd">Approval Timeline</div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+  </div>
+
+<script>
+/* ---------- LOGIN SCRIPT ---------- */
+const AUTH_USER = 'SAI', AUTH_PASS = 'SAI';
+
+function showApp(){
+  const ov = document.getElementById('loginOverlay');
+  if(ov) ov.style.display = 'none';
+  document.body.classList.remove('app-locked');      // unlock the UI
+  activate(location.hash || '#snapshot');            // route to current/default
+}
+
+function handleLogin(e){
+  e.preventDefault();
+  const id = document.getElementById('loginId')?.value.trim() || '';
+  const pw = document.getElementById('loginPw')?.value.trim() || '';
+  const err = document.getElementById('loginErr');
+  if(id === AUTH_USER && pw === AUTH_PASS){
+    localStorage.setItem('pacs_auth','1');
+    if(err) err.style.display = 'none';
+    showApp();
+  }else{
+    if(err) err.style.display = 'inline-block';
+  }
+  return false;
+}
+
+// Auto-auth on load if previously signed in
+(function initAuth(){
+  if(localStorage.getItem('pacs_auth') === '1'){
+    showApp();
+  }else{
+    // keep app locked, focus login
+    setTimeout(()=>document.getElementById('loginId')?.focus(), 0);
+  }
+})();
+
+
+/* ---------- LOGOUT SCRIPT ---------- */
+function logout(){
+  // clear auth & re-lock
+  localStorage.removeItem('pacs_auth');
+  document.body.classList.add('app-locked');
+
+  // show overlay
+  const ov = document.getElementById('loginOverlay');
+  if(ov) ov.style.display = 'flex';
+
+  // reset fields and focus
+  const idEl = document.getElementById('loginId');
+  const pwEl = document.getElementById('loginPw');
+  if(idEl) idEl.value = '';
+  if(pwEl) pwEl.value = '';
+  idEl?.focus();
+
+  // optional: always land on snapshot after next login
+  location.hash = '#snapshot';
+}
+
+
+/* ---------------- Common helpers ---------------- */
+const sections=[...document.querySelectorAll('section')];
+const tabs=[...document.querySelectorAll('.tab[data-route]')];
+function activate(route){
+  sections.forEach(s=>s.classList.toggle('active', '#'+s.id===route));
+  tabs.forEach(t=>t.classList.toggle('active', t.dataset.route===route));
+  if(history.pushState) history.replaceState(null,'',route);
+  if(route==="#membership"){ ensureMembershipCharts(); }
+  if(route==="#pacs"){ ensurePacsCharts(); }
+  if(route==="#loan"){ ensureLoanCharts(); }
+  if(route==="#noncredit"){ ensureInputsCharts(); }
+}
+window.addEventListener('hashchange', ()=>activate(location.hash || '#snapshot'));
+tabs.forEach(t=>t.addEventListener('click', ()=>activate(t.dataset.route)));
+activate(location.hash || '#snapshot');
+[...document.querySelectorAll('.rowhead.dbl')].forEach(h=>h.addEventListener('dblclick',()=>activate(h.dataset.target)));
+
+const ctx=id=>document.getElementById(id)?.getContext('2d');
+const built={};
+const fmt = n => n.toLocaleString('en-IN');
+
+/* Simple value labels plugin */
+const valueLabelPlugin = {
+  id:'valabel',
+  afterDatasetsDraw(chart){
+    const {ctx} = chart; ctx.save();
+    chart.data.datasets.forEach((ds, dsi)=>{
+      const meta=chart.getDatasetMeta(dsi); if(!meta?.data) return;
+      meta.data.forEach((el,i)=>{
+        const v=ds.data[i]; if(v==null) return;
+        const {x,y}=el.tooltipPosition(); ctx.fillStyle='#374151'; ctx.font='12px Inter,Arial'; ctx.textAlign='center';
+        ctx.fillText(String(v), x, y-6);
+      });
+    });
+    ctx.restore();
+  }
+};
+
+/* ---------------- Demo / Base data ---------------- */
+const villages=['Utai','Bhothli','Gunderdehi','Gopalpur'];
+/* DPD share % per village */
+const profiling={ d30:[22,24,20,25], d60:[10,12,12,15], d90:[5,8,10,10] }; // %
+/* Borrowing vs non-borrowing counts per village (demo) */
+const borrowData = { borrowers:[520,480,560,490], nonBorrowers:[120,110,140,110] };
+/* Score distribution */
+const scoreBins=['<60','60-69','70-79','80-89','90-100'];
+const distCounts=[2,5,9,10,4];
+/* Top members */
+const people = [
+  {name:'Ramesh Sahu', village:'Utai', acres:3.5, score:92, eligible:95000, mobile:'+91-98xxxx01'},
+  {name:'Seema Verma', village:'Bhothli', acres:2.7, score:89, eligible:88000, mobile:'+91-98xxxx02'},
+  {name:'Mahesh Patel', village:'Gunderdehi', acres:4.0, score:87, eligible:100000, mobile:'+91-98xxxx03'},
+  {name:'Sunita Kashyap', village:'Gopalpur', acres:3.2, score:85, eligible:82000, mobile:'+91-98xxxx04'},
+  {name:'Vijay Netam', village:'Utai', acres:2.1, score:83, eligible:70000, mobile:'+91-98xxxx05'},
+  {name:'Nirmala Yadav', village:'Bhothli', acres:2.8, score:82, eligible:76000, mobile:'+91-98xxxx06'},
+  {name:'Ravi Dewangan', village:'Gunderdehi', acres:3.9, score:80, eligible:90000, mobile:'+91-98xxxx07'},
+  {name:'Sushila Sahu', village:'Gopalpur', acres:3.0, score:79, eligible:69000, mobile:'+91-98xxxx08'}
+];
+
+/* Population shares for snapshot PACS row */
+const POP=24500, WOMEN_SHARE=0.35, YOUTH_SHARE=0.45;
+document.getElementById('ss_women').textContent = fmt(Math.round(POP*WOMEN_SHARE));
+document.getElementById('ss_youth').textContent = fmt(Math.round(POP*YOUTH_SHARE));
+document.getElementById('popVal').textContent = fmt(POP);
+
+/* Cashflow (₹ Cr) */
+const cashflow={ months:['Jan-24','Feb-24','Mar-24','Apr-24'],
+  inflow:[3.2,2.8,3.6,3.1], outflow:[2.5,3.0,3.8,3.4], net:[0.7,-0.2,-0.2,-0.3] };
+
+/* Repayment upcoming vs overdue (members) */
+const repayment={ months:['May-24','Jun-24','Jul-24','Aug-24'],
+  upcoming:[220,260,280,240], overdue:[45,38,35,40] };
+
+/* DPD by village (members) */
+const dpdByVillage = { labels:villages, d30:[34,28,26,30], d60:[16,14,13,15], d90:[9,12,10,11] };
+
+/* Utilization */
+const utilRaw = { labels:villages, cultivable:[2200,1600,1500,980], kccCovered:[1500,980,900,620] };
+const utilizationPct = utilRaw.kccCovered.map((k,i)=> Math.round((k/utilRaw.cultivable[i])*1000)/10);
+
+/* Loan peer benchmarking */
+const peerVillages=['Utai','Dhaba','Surgi','Somni','Karanja Bhillai','Nankatthi'];
+const avgTicket=[72,80,66,61,78,59]; // ₹k
+const repayPct=[86,92,78,74,89,71];
+
+/* Non-credit data */
+const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fertSales = { Urea:[520,560,480,510,670,880,920,800,720,710,860,930],
+  DAP:[260,290,250,270,340,460,520,430,380,360,480,510],
+  MOP:[140,160,150,155,170,220,260,230,200,195,230,250],
+  NPK:[180,210,190,200,240,300,340,300,260,250,320,350] };
+const fertStock = { labels:['Urea','DAP','MOP','NPK'], stock:[420,250,180,220], reorder:[400,300,200,240] };
+
+/* Pesticide & seeds demo */
+const pestSales = { Herbicide:[90,110,95,120,130,160,170,150,130,125,140,150], Insecticide:[80,85,90,95,110,140,150,135,120,115,130,145] };
+const pestStock = { labels:['Herbicide','Insecticide'], stock:[210,180], reorder:[220,200] };
+const seedSales = { Paddy:[70,75,60,80,120,180,220,200,150,100,90,70], Wheat:[0,0,0,0,0,0,0,0,40,110,140,160] };
+const seedStock = { labels:['Paddy','Wheat'], stock:[180,140], reorder:[150,160] };
+
+/* CSC commissions (₹ thousands) */
+const csc = { months:['Jan','Feb','Mar','Apr','May','Jun'], electricity:[22,24,26,28,30,32], insurance:[8,10,9,11,14,16], aadhaar:[5,6,5,7,6,7], pan:[6,7,7,8,9,10] };
+
+/* Non-credit peer diversification (score out of 100) */
+const peerNCNames=['Utai','Dhaba','Surgi','Somni','Karanja Bhillai','Nankatthi'];
+const ncDivers = [72,88,64,58,91,55];
+
+/* ---------------- Calculated overview numbers ---------------- */
+(function calcNCOverview(){
+  const revenue = sum(fertSales.Urea)+sum(fertSales.DAP)+sum(fertSales.MOP)+sum(fertSales.NPK)
+                + sum(pestSales.Herbicide)+sum(pestSales.Insecticide)
+                + sum(seedSales.Paddy)+sum(seedSales.Wheat);
+  const profit = Math.round(revenue * 0.18); // demo GM 18%
+  document.getElementById('nc_rev').textContent = '₹'+fmt(revenue*1000); // thousands → ₹
+  document.getElementById('nc_profit').textContent = '₹'+fmt(profit*1000);
+  document.getElementById('nc_gm').textContent = '18%';
+  document.getElementById('nc_lag').textContent = 'Seeds';
+})();
+function sum(a){return a.reduce((x,y)=>x+y,0);}
+
+/* ---------------- Membership ---------------- */
+function ensureMembershipCharts(){
+  if(!built.profiling && ctx('profilingChart')){
+    built.profiling = new Chart(ctx('profilingChart'),{
+      type:'bar',
+      data:{labels:villages, datasets:[
+        {label:'>30 DPD (%)', data:profiling.d30, backgroundColor:'#66bb6a'},
+        {label:'>60 DPD (%)', data:profiling.d60, backgroundColor:'#ffb300'},
+        {label:'>90 DPD (%)', data:profiling.d90, backgroundColor:'#c62828'}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'top'}}, scales:{y:{max:100, ticks:{callback:v=>v+'%'}}}},
+      plugins:[valueLabelPlugin]
+    });
+    const risky = villages.map((v,i)=>({v, risk: profiling.d60[i]+profiling.d90[i]})).sort((a,b)=>b.risk-a.risk);
+    document.getElementById('profilingInsights').innerHTML =
+      `• <b>${risky[0].v}</b> shows the highest risk band share (${risky[0].risk}%). Focus on >90 DPD first for escalations.<br>
+       • Portfolio-wide >60+90 DPD = <b>${avg(profiling.d60)+avg(profiling.d90)}%</b>. Aim to reduce below <b>20%</b> in 60 days.<br>
+       • Consider reactivation calls to villages with >30 DPD &gt; 20%: <b>${villages.filter((_,i)=>profiling.d30[i]>20).join(', ')}</b>.`;
+  }
+  if(!built.members && ctx('membersChart')){
+    built.members = new Chart(ctx('membersChart'),{
+      type:'bar',
+      data:{labels:villages, datasets:[
+        {label:'Borrowers', data:borrowData.borrowers, backgroundColor:'#2e7d32'},
+        {label:'Non-borrowers', data:borrowData.nonBorrowers, backgroundColor:'#c62828'}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true}}},
+      plugins:[valueLabelPlugin]
+    });
+    const tot= borrowData.borrowers.map((b,i)=>b+borrowData.nonBorrowers[i]);
+    const nonPct = borrowData.nonBorrowers.map((n,i)=> Math.round(n/tot[i]*100));
+    const worst = nonPct.map((p,i)=>({v:villages[i],p})).sort((a,b)=>b.p-a.p);
+    const order = worst.map(w=>w.v).join(' → ');
+    document.getElementById('membersInsights').innerHTML =
+      `• Highest non-borrowing share in <b>${worst[0].v}</b> (${worst[0].p}%). Start outreach here.<br>
+       • Suggested outreach order: <b>${order}</b>.<br>
+       • Total members visualised: <b>${tot.reduce((x,y)=>x+y,0)}</b>. Target to convert <b>25%</b> of non-borrowers this quarter.`;
+  }
+  if(!built.scoreDist && ctx('scoreDist')){
+    built.scoreDist = new Chart(ctx('scoreDist'),{
+      type:'bar',
+      data:{labels:scoreBins, datasets:[{label:'Members', data:distCounts, backgroundColor: '#6a4bc3'}]},
+      options:{responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}},
+      plugins:[valueLabelPlugin]
+    });
+    document.getElementById('scoreInsights').insertAdjacentHTML('beforeend',
+      `<br>• High-score cohort (≥80): <b>${distCounts[3]+distCounts[4]}</b> members. Low-score (&lt;70): <b>${distCounts[0]+distCounts[1]}</b>.`);
+  }
+  if(!built.topMembers){
+    const tbl=document.getElementById('topMembersTbl');
+    people.forEach(p=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td>${p.name}</td><td>${p.village}</td><td>${p.score}</td><td>${fmt(p.eligible)}</td>
+      <td style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-blue" onclick="offerTopup('${p.name}',${p.eligible})">Offer top-up</button>
+        <button class="btn btn-outline" onclick="callMember('${p.mobile}')">Call</button>
+      </td>`;
+      tbl.appendChild(tr);
+    });
+    built.topMembers=true;
+  }
+  if(!built.peerMember && ctx('peerMemberChart')){
+    const pacs=peerVillages;
+    const bor=[600,720,540,520,760,500], nbor=[180,140,220,240,160,260];
+    built.peerMember = new Chart(ctx('peerMemberChart'),{
+      type:'bar',
+      data:{labels:pacs, datasets:[
+        {label:'Borrowers', data:bor, backgroundColor:'#2e7d32'},
+        {label:'Non-borrowers', data:nbor, backgroundColor:'#c62828'}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true}}},
+      plugins:[valueLabelPlugin]
+    });
+    const pct = pacs.map((p,i)=>({p, pct: Math.round(bor[i]/(bor[i]+nbor[i])*100)})).sort((a,b)=>b.pct-a.pct);
+    document.getElementById('peerMemberInsights').innerHTML =
+      `• Borrower% ranking: <b>${pct.map(x=>`${x.p} (${x.pct}%)`).join(' → ')}</b>.<br>
+       • Utai at <b>${pct.find(x=>x.p==='Utai').pct}%</b>. Close the gap with <b>${pct[0].p}</b> via targeted conversion of non-borrowers.`;
+  }
+}
+function avg(a){return Math.round(a.reduce((x,y)=>x+y,0)/a.length);}
+
+/* ---------------- PACS Profile ---------------- */
+function ensurePacsCharts(){
+  if(!built.cashflow && ctx('cashflowChart')){
+    built.cashflow = new Chart(ctx('cashflowChart'),{
+      type:'line',
+      data:{labels:cashflow.months,datasets:[
+        {label:'Inflows (₹ Cr)', data:cashflow.inflow, borderColor:'#2e7d32', tension:.35},
+        {label:'Outflows (₹ Cr)', data:cashflow.outflow, borderColor:'#c62828', tension:.35},
+        {label:'Net (₹ Cr)', data:cashflow.net, borderColor:'#1565c0', tension:.35}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'top'}}},
+      plugins:[valueLabelPlugin]
+    });
+    const neg = cashflow.net.filter(n=>n<0).length;
+    document.getElementById('cashflowInsights').insertAdjacentHTML('beforeend',
+      `<br>• Net negative in <b>${neg}</b> of ${cashflow.net.length} months. Consider pausing disbursement next month unless repayments pick up.`);
+  }
+}
+
+/* ---------------- Loan Profile ---------------- */
+function ensureLoanCharts(){
+  if(!built.util && ctx('utilChart')){
+    built.util = new Chart(ctx('utilChart'),{
+      type:'bar',
+      data:{labels:utilRaw.labels,datasets:[
+        {type:'bar', label:'Utilization %', data:utilizationPct, backgroundColor:'#1976d2', order:2},
+        {type:'line', label:'Target (≥70%)', data:utilizationPct.map(()=>70), borderColor:'#ffb300', borderWidth:2, borderDash:[6,6], pointRadius:0, order:1, tension:0}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true, max:100, ticks:{callback:v=>v+'%', stepSize:10}, title:{display:true,text:'Utilization %'}}}},
+      plugins:[valueLabelPlugin]
+    });
+    const under = utilRaw.labels.filter((l,i)=>utilizationPct[i]<70);
+    document.getElementById('utilInsights').innerHTML =
+      `• Under target in: <b>${under.join(', ')||'—'}</b>.<br>
+       • Action: <b>Find top-up candidates</b> (cultivable land not fully financed), <b>flag non-financeable</b> land (barren/forest), and <b>reactivate migrated</b> members.`;
+  }
+  if(!built.repay && ctx('repayChart')){
+    built.repay = new Chart(ctx('repayChart'),{
+      type:'bar',
+      data:{labels:repayment.months,datasets:[
+        {label:'Upcoming dues (members)', data:repayment.upcoming, backgroundColor:'#43a047'},
+        {label:'Overdue (members)', data:repayment.overdue, backgroundColor:'#c62828'}
+      ]},
+      options:{responsive:true}, plugins:[valueLabelPlugin]
+    });
+    const hot = repayment.months[repayment.overdue.indexOf(Math.max(...repayment.overdue))];
+    document.getElementById('repayInsights').innerHTML =
+      `• Peak overdue in <b>${hot}</b>. Nudge these members first; then follow villages with fastest build-up.`;
+  }
+  if(!built.dpdVillage && ctx('dpdVillageChart')){
+    built.dpdVillage = new Chart(ctx('dpdVillageChart'),{
+      type:'bar',
+      data:{labels:dpdByVillage.labels, datasets:[
+        {label:'>30 DPD (members)', data:dpdByVillage.d30, backgroundColor:'#66bb6a'},
+        {label:'>60 DPD (members)', data:dpdByVillage.d60, backgroundColor:'#ffb300'},
+        {label:'>90 DPD (members)', data:dpdByVillage.d90, backgroundColor:'#c62828'}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true}}},
+      plugins:[valueLabelPlugin]
+    });
+    const worst = dpdByVillage.labels.map((v,i)=>({v, score: dpdByVillage.d90[i]*2 + dpdByVillage.d60[i]})).sort((a,b)=>b.score-a.score);
+    document.getElementById('dpdInsights').innerHTML =
+      `• Chronic overdue focus (weighted): <b>${worst.map(w=>w.v).join(' → ')}</b>.<br>
+       • Escalate >90 DPD cases, then work down 60 DPD bucket with field visits.`;
+  }
+  if(!built.peerLoan && ctx('peerLoanChart')){
+    built.peerLoan = new Chart(ctx('peerLoanChart'),{
+      type:'bar',
+      data:{labels:peerVillages, datasets:[
+        {label:'Avg ticket (₹k)', data:avgTicket, backgroundColor:'#1976d2'},
+        {type:'line', label:'Repayment %', data:repayPct, borderColor:'#2e7d32', pointRadius:4, tension:.35, yAxisID:'y1'}
+      ]},
+      options:{responsive:true, scales:{ y:{beginAtZero:true, title:{display:true,text:'₹ thousands'}},
+        y1:{position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, ticks:{callback:v=>v+' %'}, title:{display:true, text:'Repayment %'}}}},
+      plugins:[valueLabelPlugin]
+    });
+    const best = peerVillages[repayPct.indexOf(Math.max(...repayPct))];
+    document.getElementById('peerLoanInsights').innerHTML =
+      `• Top repayment: <b>${best}</b>. Raise average ticket in low-repayment villages only after stabilising collections.`;
+  }
+}
+
+/* ---------------- Non-credit (Inputs + CSC + Peer) ---------------- */
+function ensureInputsCharts(){
+  // Fertiliser sales
+  if(!built.fertSales && ctx('inputsSeasonality')){
+    built.fertSales = new Chart(ctx('inputsSeasonality'),{
+      type:'bar',
+      data:{labels:months, datasets:[
+        {label:'Urea (bags)', data: fertSales.Urea, backgroundColor:'#1976d2'},
+        {label:'DAP (bags)',  data: fertSales.DAP,  backgroundColor:'#ffb300'},
+        {label:'MOP (bags)',  data: fertSales.MOP,  backgroundColor:'#009688'},
+        {label:'NPK (bags)',  data: fertSales.NPK,  backgroundColor:'#6a4bc3'}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true, title:{display:true, text:'Bags sold'}}}},
+      plugins:[valueLabelPlugin]
+    });
+    const peakIdx = fertSales.Urea.indexOf(Math.max(...fertSales.Urea));
+    document.getElementById('fertSalesInsights').innerHTML =
+      `• Peak Urea demand: <b>${months[peakIdx]}</b>. Plan PO ~30 days in advance.`;
+  }
+  // Fertiliser stock
+  if(!built.fertStock && ctx('inputsForecast')){
+    built.fertStock = new Chart(ctx('inputsForecast'),{
+      type:'bar',
+      data:{labels: fertStock.labels, datasets:[
+        {type:'bar', label:'Stock on hand', data: fertStock.stock,  backgroundColor:'#2e7d32', order:2},
+        {type:'line', label:'Reorder level', data: fertStock.reorder, borderColor:'#c62828', borderDash:[6,6], pointRadius:0, order:1, tension:0}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true, title:{display:true, text:'Bags'}}}},
+      plugins:[valueLabelPlugin]
+    });
+  }
+  // Build quick reorder table once
+  if(!built.reorderTbl){ renderReorderTable(); built.reorderTbl = true; }
+
+  // Pesticide sales & stock
+  if(!built.pestSales && ctx('pestSalesChart')){
+    built.pestSales = new Chart(ctx('pestSalesChart'),{
+      type:'bar',
+      data:{labels:months, datasets:[
+        {label:'Herbicide (units)', data:pestSales.Herbicide, backgroundColor:'#43a047'},
+        {label:'Insecticide (units)', data:pestSales.Insecticide, backgroundColor:'#c62828'}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true}}},
+      plugins:[valueLabelPlugin]
+    });
+    document.getElementById('pestSalesInsights').innerHTML = '• Herbicide demand rises Jun–Aug; align inventory.';
+  }
+  if(!built.pestStock && ctx('pestStockChart')){
+    built.pestStock = new Chart(ctx('pestStockChart'),{
+      type:'bar',
+      data:{labels:pestStock.labels, datasets:[
+        {type:'bar', label:'Stock', data:pestStock.stock, backgroundColor:'#1976d2'},
+        {type:'line', label:'Reorder', data:pestStock.reorder, borderColor:'#ffb300', borderDash:[6,6], pointRadius:0}
+      ]},
+      options:{responsive:true}, plugins:[valueLabelPlugin]
+    });
+  }
+
+  // Seed sales & stock
+  if(!built.seedSales && ctx('seedSalesChart')){
+    built.seedSales = new Chart(ctx('seedSalesChart'),{
+      type:'bar',
+      data:{labels:months, datasets:[
+        {label:'Paddy (packets)', data:seedSales.Paddy, backgroundColor:'#6a4bc3'},
+        {label:'Wheat (packets)', data:seedSales.Wheat, backgroundColor:'#009688'}
+      ]},
+      options:{responsive:true}, plugins:[valueLabelPlugin]
+    });
+    document.getElementById('seedSalesInsights').innerHTML = '• Wheat seed sales spike Oct–Dec—secure supplier slots early.';
+  }
+  if(!built.seedStock && ctx('seedStockChart')){
+    built.seedStock = new Chart(ctx('seedStockChart'),{
+      type:'bar',
+      data:{labels:seedStock.labels, datasets:[
+        {type:'bar', label:'Stock', data:seedStock.stock, backgroundColor:'#2e7d32'},
+        {type:'line', label:'Reorder', data:seedStock.reorder, borderColor:'#c62828', borderDash:[6,6], pointRadius:0}
+      ]},
+      options:{responsive:true}, plugins:[valueLabelPlugin]
+    });
+  }
+
+  // Peer Non-credit diversification
+  if(!built.peerNC && ctx('peerNCChart')){
+    built.peerNC = new Chart(ctx('peerNCChart'),{
+      type:'bar',
+      data:{labels:peerNCNames, datasets:[
+        {label:'Diversification score (0-100)', data:ncDivers, backgroundColor:'#1976d2'}
+      ]},
+      options:{responsive:true, plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:true, max:100}}},
+      plugins:[valueLabelPlugin]
+    });
+    const rank = peerNCNames.map((n,i)=>({n,s:ncDivers[i]})).sort((a,b)=>b.s-a.s);
+    document.getElementById('peerNCInsights').innerHTML =
+      `• Top diversified PACS: <b>${rank[0].n}</b> (score ${rank[0].s}). Utai at <b>${ncDivers[0]}</b>. Add CSC bundles and seeds margin to improve score.`;
+  }
+}
+
+/* Reorder table logic (fertiliser) */
+function avgLast3(arr){ const n=arr.length; return (arr[n-1]+arr[n-2]+arr[n-3]) / 3; }
+function daysOfCover(stock, avgMonthly){ const daily = avgMonthly/30; return Math.round((stock/daily)); }
+function renderReorderTable(){
+  const tbl = document.getElementById('reorderTbl'); if(!tbl) return;
+  const last3 = { Urea: avgLast3(fertSales.Urea), DAP: avgLast3(fertSales.DAP), MOP: avgLast3(fertSales.MOP), NPK: avgLast3(fertSales.NPK) };
+  fertStock.labels.forEach((sku,i)=>{
+    const stock=fertStock.stock[i], reorder=fertStock.reorder[i], cover=daysOfCover(stock, last3[sku]); const targetDays=45;
+    const need = Math.max(0, Math.round((targetDays - cover) * (last3[sku]/30)));
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${sku}</td>
+      <td>${fmt(stock)}</td>
+      <td>${fmt(reorder)}</td>
+      <td ${cover<30?'style="color:#c62828;font-weight:700"':''}>${cover} d</td>
+      <td ${need>0?'style="color:#ef6c00;font-weight:700"':''}>${fmt(need)}</td>
+      <td><input type="checkbox" data-sku="${sku}" data-qty="${need}"></td>`;
+    tbl.appendChild(tr);
+  });
+}
+
+/* ---------------- Actions / exports ---------------- */
+function openList(kind){ alert((kind==='borrowers'?'Borrowers vs Non-borrowers':'TD vs Non-TD')+' list (demo).'); }
+function autoClassify(){ alert('Auto-classification started (demo): tags members by DPD & engagement.'); }
+function downloadProfilingCSV(){
+  const rows=[['Village','>30 DPD %','>60 DPD %','>90 DPD %']];
+  villages.forEach((v,i)=>rows.push([v,profiling.d30[i],profiling.d60[i],profiling.d90[i]]));
+  downloadCSV('profiling.csv',rows);
+}
+function openBehaviourPlaybook(){ alert('Opening behaviour playbook (demo).'); }
+function messageDormant(){ alert('Messaging non-borrowers via SMS/WhatsApp (demo).'); }
+function downloadMembersCSV(memberwise=false){
+  const rows=[['Village','Borrowers','Non-borrowers']];
+  villages.forEach((v,i)=>rows.push([v,borrowData.borrowers[i],borrowData.nonBorrowers[i]]));
+  downloadCSV(memberwise?'members_memberwise.csv':'members.csv',rows);
+}
+function offerTopup(name, amt){ alert(`Offer generated for ${name}: ₹${fmt(amt)} top-up (demo).`); }
+function callMember(num){ alert(`Dialling ${num} (demo).`); }
+function createOffers(){
+  const tbl=document.getElementById('topMembersTbl');
+  [...tbl.querySelectorAll('tr')].slice(1).forEach(r=>r.remove());
+  people.sort((a,b)=>b.score-a.score).slice(0,8).forEach(p=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td>${p.name}</td><td>${p.village}</td><td>${p.score}</td><td>${fmt(Math.round(p.eligible*1.1))}</td>
+    <td style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+      <button class="btn btn-blue" onclick="offerTopup('${p.name}',${Math.round(p.eligible*1.1)})">Offer top-up</button>
+      <button class="btn btn-outline" onclick="callMember('${p.mobile}')">Call</button>
+    </td>`;
+    tbl.appendChild(tr);
+  });
+  document.getElementById('topMemberInsights').innerHTML =
+    'Updated with fresh top-ups (10% higher eligibility) based on latest score cohort (≥85).';
+}
+function exportScores(){
+  const rows=[['Name','Village','Score','Eligible ₹']];
+  people.forEach(p=>rows.push([p.name,p.village,p.score,p.eligible]));
+  downloadCSV('credit_scores.csv',rows);
+}
+function exportPeerMembership(){
+  const rows=[['PACS','Borrowers','Non-borrowers']];
+  const bor=[600,720,540,520,760,500], nbor=[180,140,220,240,160,260];
+  peerVillages.forEach((p,i)=>rows.push([p,bor[i],nbor[i]]));
+  downloadCSV('peer_membership.csv',rows);
+}
+function contactPACS(){ alert('Opening contact sheet for PACS (demo): Call/WA/Email.'); }
+
+function scheduleFundRelease(){ alert('Created fund release schedule aligning to crop stages (demo).'); }
+function openLiquidity(){ alert('Opening liquidity report (demo).'); }
+function setCashAlerts(){ alert('Cash buffer alerts set at ₹25L threshold (demo).'); }
+function scheduleHarvestReminders(){ alert('Reminders scheduled 15 days before harvest (demo).'); }
+function exportCalendar(){
+  const rows=[['Crop','Stage','Month']];
+  [['Paddy','Sowing',['Jun','Jul']],['Paddy','Growing',['Aug','Sep','Oct']],['Paddy','Harvest',['Nov','Dec']],
+   ['Wheat','Sowing',['Nov','Dec']],['Wheat','Growing',['Dec','Jan','Feb']],['Wheat','Harvest',['Mar']]].forEach(([c,s,ms])=>{
+    ms.forEach(m=>rows.push([c,s,m]));
+  });
+  downloadCSV('crop_calendar.csv',rows);
+}
+
+function findTopup(){ alert('Identified members with cultivable land under-financed; migrated cases flagged; non-financeable land excluded (demo).'); }
+function exportUtilization(){
+  const rows=[['Village','Cultivable acres','KCC-covered acres','Utilisation %']];
+  utilRaw.labels.forEach((l,i)=>rows.push([l,utilRaw.cultivable[i],utilRaw.kccCovered[i],utilizationPct[i]]));
+  downloadCSV('utilisation.csv',rows);
+}
+function sendReminders(){ alert('Reminder SMS/WA queued to members with upcoming dues (demo).'); }
+function downloadDueList(){
+  const rows=[['Month','Upcoming members','Overdue members']];
+  repayment.months.forEach((m,i)=>rows.push([m,repayment.upcoming[i],repayment.overdue[i]]));
+  downloadCSV('duelist.csv',rows);
+}
+function escalate90(){ alert('Escalation note prepared for >90 DPD (demo).'); }
+function sendRepaymentNudges(){ alert('Repayment nudges sent to >30 DPD cohort (demo).'); }
+function exportOverdue(){
+  const rows=[['Village','>30 DPD','>60 DPD','>90 DPD']];
+  dpdByVillage.labels.forEach((l,i)=>rows.push([l,dpdByVillage.d30[i],dpdByVillage.d60[i],dpdByVillage.d90[i]]));
+  downloadCSV('overdue_by_village.csv',rows);
+}
+function downloadPeerLoan(){
+  const rows=[['PACS/Village','Avg ticket (₹k)','Repayment %']];
+  peerVillages.forEach((p,i)=>rows.push([p,avgTicket[i],repayPct[i]]));
+  downloadCSV('loan_benchmarking.csv',rows);
+}
+function setTargets(){ alert('Targets set for low-performing villages with monthly review (demo).'); }
+
+function downloadSalesCSV(){
+  const rows = [['Month','Urea','DAP','MOP','NPK']];
+  months.forEach((m,idx)=>rows.push([m,fertSales.Urea[idx],fertSales.DAP[idx],fertSales.MOP[idx],fertSales.NPK[idx]]));
+  downloadCSV('fertiliser_sales.csv', rows);
+}
+function exportStockCSV(){
+  const rows = [['SKU','Stock','Reorder level']];
+  fertStock.labels.forEach((l,i)=>rows.push([l,fertStock.stock[i],fertStock.reorder[i]]));
+  downloadCSV('fertiliser_stock.csv', rows);
+}
+function raisePOSelected(){
+  const checks = [...document.querySelectorAll('#reorderTbl input[type="checkbox"]:checked')];
+  if(checks.length===0){ alert('No SKU selected. Tick rows to add to PO.'); return; }
+  const items = checks.map(c=>`${c.dataset.sku}: ${Number(c.dataset.qty)||0} bags`).join('\n • ');
+  alert('PO draft (demo):\n • '+items);
+}
+
+/* ---------------- Reporting workflow ---------------- */
+let recipients=['dccb@bank.in'];
+let pendingToSend=5;
+function nowStr(){ return new Date().toLocaleString(); }
+function addHistory(item, to='—', status='Ready'){
+  const tbl=document.getElementById('historyTable');
+  const tr=document.createElement('tr');
+  tr.innerHTML = `<td>${nowStr()}</td><td>${item}</td><td>${to}</td><td>${status}</td>`;
+  tbl.appendChild(tr);
+}
+function generateMISPack(){
+  document.getElementById('lastMis').textContent = nowStr();
+  pendingToSend = Math.max(0, pendingToSend-1);
+  document.getElementById('pendingCount').textContent = pendingToSend;
+  addHistory('MIS Pack','—','Generated');
+  alert('MIS Pack generated (demo).');
+}
+function viewMIS(){ addHistory('MIS Pack','—','Viewed'); alert('Opening MIS pack preview (demo).'); }
+function downloadZip(){ addHistory('MIS Pack ZIP','—','Downloaded'); alert('Downloading MIS ZIP (demo).'); }
+function sendToDCCB(){ addHistory('MIS Pack', recipients.join('; '), 'Sent'); alert('MIS & reports emailed to: '+recipients.join(', ')+' (demo)'); }
+function viewReport(code){ const map={INT:'Interest Subvention',OD:'Overdue Report',BS:'Balance Sheet',TB:'Trial Balance',PNL:'P&L Statement'}; alert('Opening preview for: '+map[code]+' (demo)'); }
+function generateReport(code){ const idMap={INT:'st_int',OD:'st_od',BS:'st_bs',TB:'st_tb',PNL:'st_pnl'}; document.getElementById(idMap[code]).textContent='Ready'; addHistory(idMap[code].replace('st_','').toUpperCase(),'—','Generated'); }
+
+function openTrack(){
+  const modal=document.getElementById('trackModal'); const tl=document.getElementById('timeline');
+  tl.innerHTML='';
+  const stages=[
+    {name:'Generated', done:true, who:'Secretary', when: nowStr()},
+    {name:'Submitted to DCCB', done:true, who:'Secretary', when: nowStr()},
+    {name:'DCB Review', done:false},
+    {name:'DCCB Review', done:false},
+    {name:'Approved', done:false}
+  ];
+  stages.forEach(s=>{
+    const div=document.createElement('div'); div.className='tl-item';
+    div.innerHTML=`<div class="tl-dot ${s.done?'':'pending'}"></div>
+      <div><b>${s.name}</b><div class="mini">${s.done?('By '+s.who+' • '+s.when):'Pending'}</div></div>`;
+    tl.appendChild(div);
+  });
+  modal.style.display='flex';
+}
+
+/* ---------------- CSV helper ---------------- */
+function downloadCSV(filename, rows){
+  const processRow = row => row.map(v => `"${(v??'').toString().replace(/"/g,'""')}"`).join(',');
+  const csv = rows.map(processRow).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=filename; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+</script>
+</body>
+</html>
